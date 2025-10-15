@@ -45,15 +45,16 @@ export const Canvas: React.FC<CanvasProps> = ({
     try {
       const item: ComponentItem = JSON.parse(e.dataTransfer.getData('application/json'));
       const rect = canvasRef.current.getBoundingClientRect();
-      const x = snapToGridValue((e.clientX - rect.left - panOffset.x) / (zoom / 100));
-      const y = snapToGridValue((e.clientY - rect.top - panOffset.y) / (zoom / 100));
+      const scale = zoom / 100;
+      const x = snapToGridValue((e.clientX - rect.left) / scale - panOffset.x / scale);
+      const y = snapToGridValue((e.clientY - rect.top) / scale - panOffset.y / scale);
 
       const newObject: CanvasObject = {
-        id: `obj-${Date.now()}`,
+        id: `obj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: 'component',
         name: item.name,
-        x,
-        y,
+        x: Math.max(0, x),
+        y: Math.max(0, y),
         width: item.defaultWidth,
         height: item.defaultHeight,
         rotation: 0,
@@ -61,9 +62,11 @@ export const Canvas: React.FC<CanvasProps> = ({
         color: '#4CAF50',
         svg: item.svg,
         category: item.category,
-        showLabel: true
+        showLabel: false,
+        label: item.name
       };
 
+      const allObjects = [...objects, newObject];
       onUpdateObject(newObject.id, newObject);
     } catch (error) {
       console.error('Error dropping object:', error);
@@ -156,16 +159,20 @@ export const Canvas: React.FC<CanvasProps> = ({
   return (
     <div
       ref={canvasRef}
-      className="flex-1 bg-gray-100 rounded-lg shadow-sm border border-gray-200 overflow-hidden relative cursor-move"
+      className="flex-1 bg-white rounded-lg shadow-sm border-2 border-gray-300 overflow-hidden relative cursor-move"
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
-      onMouseDown={(e) => e.target === canvasRef.current && handleMouseDown(e)}
+      onMouseDown={(e) => {
+        if (e.target === canvasRef.current || (e.target as HTMLElement).closest('.canvas-content')) {
+          handleMouseDown(e);
+        }
+      }}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
       <div
-        className="absolute inset-0"
+        className="canvas-content absolute inset-0"
         style={{
           transform: `translate(${panOffset.x}px, ${panOffset.y}px)`,
           transformOrigin: '0 0'

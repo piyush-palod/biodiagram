@@ -1,14 +1,20 @@
-import React, { useState } from 'react';
-import { Settings, MessageSquare, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Settings, MessageSquare, X, ArrowLeft, Save, Loader2 } from 'lucide-react';
 import { BiologyLibrary } from './components/BiologyLibrary';
 import { Canvas } from './components/Canvas';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { AIAssistant } from './components/AIAssistant';
 import { TopToolbar } from './components/TopToolbar';
+import { Auth } from './components/Auth';
+import { DiagramList } from './components/DiagramList';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CanvasObject } from './types';
 import { exportToPNG, exportToSVG, exportToPDF, exportToJSON } from './utils/exportUtils';
+import { supabase, Diagram } from './lib/supabase';
 
-function App() {
+function AppContent() {
+  const { user, loading: authLoading } = useAuth();
+  const [currentDiagram, setCurrentDiagram] = useState<Diagram | null>(null);
   const [selectedObject, setSelectedObject] = useState<CanvasObject | null>(null);
   const [canvasObjects, setCanvasObjects] = useState<CanvasObject[]>([]);
   const [zoom, setZoom] = useState(100);
@@ -17,6 +23,47 @@ function App() {
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState<'properties' | 'ai'>('properties');
+  const [saving, setSaving] = useState(false);
+  const [autoSaveTimeout, setAutoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (currentDiagram) {
+      setCanvasObjects(currentDiagram.canvas_data || []);
+    }
+  }, [currentDiagram]);
+
+  useEffect(() => {
+    if (currentDiagram && canvasObjects.length >= 0) {
+      if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+      }
+      const timeout = setTimeout(() => {
+        saveDiagram();
+      }, 2000);
+      setAutoSaveTimeout(timeout);
+    }
+  }, [canvasObjects]);
+
+  const saveDiagram = async () => {
+    if (!currentDiagram || !user) return;
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('diagrams')
+        .update({
+          canvas_data: canvasObjects,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', currentDiagram.id);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error saving diagram:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleAddObject = (object: CanvasObject) => {
     setCanvasObjects(prev => [...prev, object]);
@@ -55,8 +102,73 @@ function App() {
     }
   };
 
+  const handleBackToDiagrams = () => {
+    setCurrentDiagram(null);
+    setCanvasObjects([]);
+    setSelectedObject(null);
+  };
+
+  if (authLoading) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="w-8 h-8 text-green-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Auth />;
+  }
+
+  if (!currentDiagram) {
+    return <DiagramList onSelectDiagram={setCurrentDiagram} />;
+  }
+
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-50 overflow-hidden">
+      <div className="h-[60px] bg-white border-b border-gray-200 flex items-center px-4 gap-4">
+        <button
+          onClick={handleBackToDiagrams}
+          className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
+
+        <div className="flex-1 flex items-center gap-3">
+          <input
+            type="text"
+            value={currentDiagram.title}
+            onChange={async (e) => {
+              const newTitle = e.target.value;
+              setCurrentDiagram({ ...currentDiagram, title: newTitle });
+              await supabase
+                .from('diagrams')
+                .update({ title: newTitle })
+                .eq('id', currentDiagram.id);
+            }}
+            className="text-lg font-semibold text-gray-800 bg-transparent border-none focus:outline-none focus:ring-2 focus:ring-green-500 rounded px-2 py-1"
+          />
+          {saving && (
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Saving...
+            </div>
+          )}
+          {!saving && (
+            <div className="text-sm text-gray-400">Saved</div>
+          )}
+        </div>
+
+        <button
+          onClick={saveDiagram}
+          className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+        >
+          <Save className="w-4 h-4" />
+          Save Now
+        </button>
+      </div>
+
       <TopToolbar
         zoom={zoom}
         setZoom={setZoom}
@@ -159,6 +271,14 @@ function App() {
         </div>
       </div>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
 
